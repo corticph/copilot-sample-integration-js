@@ -1,0 +1,15 @@
+{
+  "name": "copilot-sample-integration-js",
+  "version": "1.0.0",
+  "description": "A simple integration of the Copilot API using JavaScript, proxying requests to the Co-Pilot auth API through a CORS proxy.",
+  "main": "proxy.js",
+  "scripts": {
+    "start:proxy": "node proxy.js",
+    "start:static": "serve public -l 5173",
+    "start": "npm run start:proxy & npm run start:static"
+  },
+  "dependencies": {
+    "cors-anywhere": "^0.4.4",
+    "serve": "^14.0.1"
+  }
+}

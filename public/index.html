@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Scribe App</title>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
+    ></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-100 p-6" x-data="scribeApp()">
+    <div class="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-lg">
+      <h1 class="text-2xl font-bold mb-6">AI Scribe</h1>
+
+      <!-- Authentication -->
+      <div class="mb-4" x-show="!token">
+        <label class="block mb-2 text-sm font-medium">Login</label>
+        <input
+          type="text"
+          class="w-full p-2 border rounded"
+          placeholder="Username"
+          x-model="username"
+        />
+        <input
+          type="password"
+          class="w-full p-2 border rounded mt-2"
+          placeholder="Password"
+          x-model="password"
+        />
+        <button
+          class="bg-blue-500 text-white p-2 mt-4 rounded"
+          @click="authenticate()"
+        >
+          Login
+        </button>
+      </div>
+
+      <!-- Interaction Creation -->
+      <div class="mb-4" x-show="token">
+        <label class="block mb-2 text-sm font-medium">Select Template</label>
+        <select class="w-full p-2 border rounded" x-model="selectedTemplate">
+          <option value="">Select a template</option>
+          <template x-for="template in templates" :key="template.id">
+            <option :value="template.id" x-text="template.name"></option>
+          </template>
+        </select>
+        <label class="block mt-4 mb-2 text-sm font-medium">Select Language</label>
+        <select class="w-full p-2 border rounded" x-model="selectedLanguage">
+          <option value="en">English</option>
+          <option value="es">Spanish</option>
+          <option value="fr">French</option>
+          <option value="da">Danish</option>
+          <option value="de">German</option>
+        </select>
+        <button
+          class="bg-green-500 text-white p-2 mt-4 rounded"
+          @click="startInteraction()"
+          x-show="!interactionId"
+        >
+          Start Interaction
+        </button>
+      </div>
+
+      <!-- Recording Controls -->
+      <div class="mb-4" x-show="interactionId">
+        <div class="flex gap-1">
+          <button
+            class="bg-yellow-500 text-white p-2 rounded"
+            @click="startRecording()"
+            x-show="!isRecording"
+          >
+            Start
+          </button>
+          <button
+            class="bg-gray-500 text-white p-2 rounded"
+            @click="pauseRecording()"
+            x-show="isRecording && !isPaused"
+          >
+            Pause
+          </button>
+          <button
+            class="bg-green-500 text-white p-2 rounded"
+            @click="resumeRecording()"
+            x-show="isPaused"
+          >
+            Resume
+          </button>
+          <button
+            class="bg-red-500 text-white p-2 rounded"
+            @click="stopRecording()"
+            x-show="isRecording"
+          >
+            Stop
+          </button>
+        </div>
+      </div>
+      
+
+      <!-- Transcription log -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4" x-show="sections.length > 0">
+        <!-- Transcriptions Column -->
+        <div class="mb-4">
+            <h2 class="text-xl font-bold">Transcriptions</h2>
+            <ul class="list-disc ml-6">
+                <template x-for="transcription in transcriptions" :key="transcription.id">
+                    <li x-text="transcription.text"></li>
+                </template>
+            </ul>
+        </div>
+
+        <!-- Documentation Sections Column -->
+        <div class="mb-4">
+            <h2 class="text-xl font-bold">Documentation</h2>
+            <template x-for="section in sections" :key="section.sectionId">
+                <div>
+                    <h3 class="text-lg font-semibold" x-text="section.sectionTitle"></h3>
+                    <textarea
+                        class="w-full p-2 border rounded mt-2"
+                        x-model="section.text"
+                    ></textarea>
+                </div>
+            </template>
+        </div>
+    </div>
+    </div>
+
+    <script>
+    
+    function scribeApp() {
+  return {
+    username: localStorage.getItem("username") || "",
+    password: localStorage.getItem("password") || "",
+    token: localStorage.getItem("token") || "",
+    interactionId: null,
+    selectedTemplate: "",
+    selectedLanguage: "en",
+    templates: [],
+    transcriptions: [],
+    sections: [],
+    websocket: null,
+    isRecording: false,
+    isPaused: false,
+
+    authenticate() {
+      const url = `https://keycloak.beta-eu.corti.app/realms/copiloteu/protocol/openid-connect/token`;
+
+      fetch(`http://localhost:8080/${url}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          username: this.username,
+          password: this.password,
+          grant_type: "password",
+          client_id: "copilot-frontend",
+          scope: "openid",
+        }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          this.token = data.access_token;
+
+          // Save credentials and token to localStorage
+          localStorage.setItem("username", this.username);
+          localStorage.setItem("password", this.password);
+
+          // Fetch templates after successful login
+          this.fetchTemplates();
+        })
+        .catch((error) => {
+          console.error("Error:", error);
+        });
+    },
+
+    fetchTemplates() {
+      fetch(
+        "https://api.beta-eu.corti.app/copilot/v1/templates?offset=0&limit=20",
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      )
+        .then((response) => response.json())
+        .then((data) => {
+          this.templates = data.data.filter(
+            (template) => template.language.code.includes("en")
+          );
+
+          // Set the first template as the default selected template
+          if (this.templates.length > 0) {
+            this.selectedTemplate = this.templates[0].id;
+          }
+        })
+        .catch((error) => {
+          console.error("Error fetching templates:", error);
+        });
+    },
+
+    updateSections(selectedTemplateId) {
+      // Find the selected template and map its sections to the `sections` array
+      const selectedTemplate = this.templates.find(
+        (template) => template.id === selectedTemplateId
+      );
+
+      if (selectedTemplate) {
+        this.sections = selectedTemplate.sections.map((section) => ({
+          sectionId: section.id,
+          sectionTitle: section.title,
+          text: "",
+        }));
+      }
+    },
+
+    startInteraction() {
+      fetch("https://api.beta-eu.corti.app/copilot/v1/interviews", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          language: this.selectedLanguage,
+          documentation: { template_id: this.selectedTemplate },
+          participants: [{ channel: 1, role: "multiple" }],
+        }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          this.interactionId = data.id;
+
+          this.updateSections(this.selectedTemplate);
+          console.log(`Interaction started with ID: ${data.id}`);
+        });
+    },
+
+    startRecording() {
+      this.isRecording = true;
+      this.isPaused = false;
+
+      // Only create WebSocket if it doesn't already exist
+      if (!this.websocket || this.websocket.readyState !== 1) {
+        this.websocket = new WebSocket(
+          `wss://api.beta-eu.corti.app/audio-bridge/v1/interviews/${this.interactionId}/live?token=Bearer%20${this.token}`
+        );
+
+        this.websocket.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          if (data.type === "transcription") {
+            // Prepend new transcripts
+            data.records.map((record) => {
+              record.id = Math.random().toString(36).substr(2, 9);
+              this.transcriptions.push(record);
+            });
+          } else if (data.type === "documentation") {
+            data.sections.forEach((updatedSection) => {
+              const sectionIndex = this.sections.findIndex(
+                (section) => section.sectionId === updatedSection.sectionId
+              );
+              if (sectionIndex !== -1) {
+                this.sections[sectionIndex].text =
+                  updatedSection.records[0].text;
+              }
+            });
+          }
+        };
+      }
+
+      // Start recording and send audio data
+      navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+        const recorder = new MediaRecorder(stream);
+        recorder.start(250);
+
+        recorder.addEventListener("dataavailable", (event) => {
+          if (event.data.size > 0 && this.websocket.readyState === 1) {
+            this.websocket.send(event.data);
+          }
+        });
+      });
+    },
+
+    pauseRecording() {
+      this.isPaused = true;
+      if (this.websocket) {
+        this.websocket.send(JSON.stringify({ type: "pause" }));
+      }
+    },
+
+    resumeRecording() {
+      this.isPaused = false;
+      if (this.websocket) {
+        this.websocket.send(JSON.stringify({ type: "resume" }));
+      }
+    },
+
+    stopRecording() {
+      this.isRecording = false;
+      this.isPaused = false;
+      if (this.websocket) {
+        this.websocket.send(JSON.stringify({ type: "end" }));
+      }
+    },
+
+    // Automatically fetch templates if the user is already logged in
+    init() {
+      if (this.username && this.password) {
+        this.authenticate();
+      }
+    },
+  };
+}
+
+    
+    </script>
+  </body>
+</html>
