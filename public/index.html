@@ -145,7 +145,7 @@
     isPaused: false,
 
     authenticate() {
-      const url = `https://keycloak.${baseURL}/realms/copiloteu/protocol/openid-connect/token`;
+      const url = `https://keycloak.${this.baseURL}/realms/copiloteu/protocol/openid-connect/token`;
 
       fetch(`http://localhost:8080/${url}`, {
         method: "POST",
@@ -178,7 +178,7 @@
 
     fetchTemplates() {
       fetch(
-        `https://api.${baseURL}/copilot/v1/templates?offset=0&limit=20`,
+        `https://api.${this.baseURL}/copilot/v1/templates?offset=0&limit=20`,
         {
           method: "GET",
           headers: {
@@ -219,7 +219,7 @@
     },
 
     startInteraction() {
-      fetch(`https://api.${baseURL}/copilot/v1/interviews`, {
+      fetch(`https://api.${this.baseURL}/copilot/v1/interviews`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.token}`,
@@ -247,7 +247,7 @@
       // Only create WebSocket if it doesn't already exist
       if (!this.websocket || this.websocket.readyState !== 1) {
         this.websocket = new WebSocket(
-          `wss://api.${baseURL}/audio-bridge/v1/interviews/${this.interactionId}/live?token=Bearer%20${this.token}`
+          `wss://api.${this.baseURL}/audio-bridge/v1/interviews/${this.interactionId}/live?token=Bearer%20${this.token}`
         );
 
         this.websocket.onmessage = (event) => {
