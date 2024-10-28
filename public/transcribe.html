@@ -151,7 +151,7 @@
               .then((data) => {
                 this.token = data.access_token;
                 localStorage.setItem("envURL", this.envURL);
-                localStorage.getItem("realm", this.realm);
+                localStorage.setItem("realm", this.realm);
                 localStorage.setItem("username", this.username);
                 localStorage.setItem("password", this.password);
               })
@@ -212,6 +212,7 @@
                     stream.events.push({
                         time: currentTime.toISOString(),
                         time_since_start: parseFloat(timeSinceStart.toFixed(3)),
+                        lag: parseFloat(timeSinceStart.toFixed(3)) - data.data.end,
                         data
                     });
 
