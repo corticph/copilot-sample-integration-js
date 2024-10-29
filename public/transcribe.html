@@ -57,6 +57,8 @@
         <select class="w-full p-2 border rounded" x-model="selectedLanguage">
           <option value="da">Danish</option>
           <option value="en">English</option>
+          <option value="es">Spanish</option>
+          <option value="fr">French</option>
         </select>
 
         <label class="block mt-4 mb-2 text-sm font-medium"
@@ -124,7 +126,10 @@
                 class="text-lg font-semibold"
                 x-text="'Stream ' + (index + 1)"
               ></h3>
-              <div class="mb-2 rounded bg-gray-50 p-1 text-sm" x-show="allStreamData.streams[index]">
+              <div
+                class="mb-2 rounded bg-gray-50 p-1 text-sm"
+                x-show="allStreamData.streams[index]"
+              >
                 <p
                   x-show="allStreamData.streams[index] && allStreamData.streams[index].audio_packets_sent"
                   x-text="'Audio Packets Sent: ' + (allStreamData.streams[index]?.audio_packets_sent || 0)"
@@ -145,7 +150,7 @@
                 >
                   <li class="flex">
                     <p class="w-24" x-text="transcription.lag"></p>
-                    <p  x-text="transcription.text"></p>
+                    <p x-text="transcription.text"></p>
                   </li>
                 </template>
               </ul>
@@ -159,8 +164,8 @@
       function scribeApp() {
         return {
           urlOverride: {
-            'ws': null,
-            'keycloak': null
+            ws: null,
+            keycloak: null,
           },
           envURL: localStorage.getItem("envURL") || "beta-eu",
           realm: localStorage.getItem("realm") || "copiloteu",
@@ -177,7 +182,9 @@
           allStreamData: null,
 
           authenticate() {
-            const url = this.urlOverride.keycloak || `https://keycloak.${this.envURL}.corti.app/realms/${this.realm}/protocol/openid-connect/token`;
+            const url =
+              this.urlOverride.keycloak ||
+              `https://keycloak.${this.envURL}.corti.app/realms/${this.realm}/protocol/openid-connect/token`;
             fetch(`http://localhost:8080/${url}`, {
               method: "POST",
               headers: {
@@ -225,7 +232,8 @@
               .then((stream) => {
                 for (let i = 0; i < this.numberOfStreams; i++) {
                   const ws = new WebSocket(
-                    this.urlOverride.ws || `wss://api.${this.envURL}.corti.app/audio-bridge/v1/transcribe?token=Bearer%20${this.token}`
+                    this.urlOverride.ws ||
+                      `wss://api.${this.envURL}.corti.app/audio-bridge/v1/transcribe?token=Bearer%20${this.token}`
                   );
 
                   ws.onopen = () => {
@@ -259,7 +267,9 @@
                     const timeSinceStart =
                       (currentTime - new Date(stream.start_time)) / 1000;
 
-                      const lag = parseFloat((timeSinceStart - data.data.end).toFixed(3));
+                    const lag = parseFloat(
+                      (timeSinceStart - data.data.end).toFixed(3)
+                    );
 
                     // Push the event data into the events array of the relevant stream
                     stream.events.push({
@@ -271,14 +281,15 @@
 
                     // Calculate the mean lag for the stream
                     const lags = stream.events.map((event) => event.lag);
-                    stream.mean_lag =
-                      parseFloat((lags.reduce((a, b) => a + b, 0) / lags.length).toFixed(3));
+                    stream.mean_lag = parseFloat(
+                      (lags.reduce((a, b) => a + b, 0) / lags.length).toFixed(3)
+                    );
 
                     if (data.type === "dictation" && data.data.final) {
                       const record = {
                         id: Math.random().toString(36).substr(2, 9),
                         text: data.data.text,
-                        lag
+                        lag,
                       };
                       this.transcriptions[i].push(record);
                     }
@@ -290,8 +301,30 @@
                       error
                     );
 
+                  // check if all n streams are open and ready to send audio
+
                   const recorder = new MediaRecorder(stream);
-                  recorder.start(250);
+                  // wait for all streams to be open before sending audio checking every 100ms
+                  const interval = setInterval(() => {
+                    console.log("Checking if all streams are open");
+                    const allOpen =
+                      this.streams.length === this.numberOfStreams &&
+                      this.streams.every(
+                        ({ websocket }) => websocket.readyState === 1
+                      );
+                    console.log(
+                      allOpen,
+                      this.streams.length,
+                      this.numberOfStreams
+                    );
+                    if (allOpen) {
+                      console.log("All streams are open");
+                      clearInterval(interval);
+                      recorder.start(250);
+                      return;
+                    }
+                  }, 200);
+
                   recorder.addEventListener("dataavailable", (event) => {
                     if (
                       event.data.size > 0 &&
