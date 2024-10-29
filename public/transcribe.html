@@ -51,13 +51,17 @@
 
       <!-- Interaction Creation -->
       <div class="mb-4" x-show="token && !isRecording">
-        <label class="block mt-4 mb-2 text-sm font-medium">Select Language</label>
+        <label class="block mt-4 mb-2 text-sm font-medium"
+          >Select Language</label
+        >
         <select class="w-full p-2 border rounded" x-model="selectedLanguage">
           <option value="da">Danish</option>
           <option value="en">English</option>
         </select>
 
-        <label class="block mt-4 mb-2 text-sm font-medium">Number of Streams</label>
+        <label class="block mt-4 mb-2 text-sm font-medium"
+          >Number of Streams</label
+        >
         <input
           type="number"
           class="w-full p-2 border rounded"
@@ -79,22 +83,30 @@
           <button
             class="bg-gray-500 text-white p-2 rounded"
             @click="pauseRecording()"
-            x-show="!isPaused"
+            x-show="!isPaused && !isStopped"
           >
             Pause
           </button>
           <button
             class="bg-green-500 text-white p-2 rounded"
             @click="resumeRecording()"
-            x-show="isPaused"
+            x-show="isPaused && !isStopped"
           >
             Resume
           </button>
           <button
             class="bg-red-500 text-white p-2 rounded"
             @click="stopRecording()"
+            x-show="!isStopped"
           >
             Stop
+          </button>
+          <button
+            class="bg-blue-500 text-white p-2 rounded"
+            @click="refresh()"
+            x-show="isStopped"
+          >
+            Reset
           </button>
         </div>
       </div>
@@ -103,12 +115,38 @@
       <div class="grid grid-cols-1 gap-4" x-show="isRecording">
         <div class="mb-4">
           <h2 class="text-xl font-bold">Transcriptions</h2>
-          <template x-for="(streamTranscriptions, index) in transcriptions" :key="index">
+          <template
+            x-for="(streamTranscriptions, index) in transcriptions"
+            :key="index"
+          >
             <div>
-                <h3 class="text-lg font-semibold" x-text="'Stream ' + (index + 1)"></h3>
-                <ul class="list-disc ml-6">
-                <template x-for="transcription in streamTranscriptions" :key="transcription.id">
-                  <li x-text="transcription.text"></li>
+              <h3
+                class="text-lg font-semibold"
+                x-text="'Stream ' + (index + 1)"
+              ></h3>
+              <div class="mb-2 rounded bg-gray-50 p-1 text-sm" x-show="allStreamData.streams[index]">
+                <p
+                  x-show="allStreamData.streams[index] && allStreamData.streams[index].audio_packets_sent"
+                  x-text="'Audio Packets Sent: ' + (allStreamData.streams[index]?.audio_packets_sent || 0)"
+                ></p>
+                <p
+                  x-show="allStreamData.streams[index] && allStreamData.streams[index].events.length"
+                  x-text="'Events: ' + (allStreamData.streams[index]?.events.length || 0)"
+                ></p>
+                <p
+                  x-show="allStreamData.streams[index] && allStreamData.streams[index].mean_lag"
+                  x-text="'Mean Lag: ' + (allStreamData.streams[index]?.mean_lag || 0)"
+                ></p>
+              </div>
+              <ul class="list-disc ml-6">
+                <template
+                  x-for="transcription in streamTranscriptions"
+                  :key="transcription.id"
+                >
+                  <li class="flex">
+                    <p class="w-24" x-text="transcription.lag"></p>
+                    <p  x-text="transcription.text"></p>
+                  </li>
                 </template>
               </ul>
             </div>
@@ -120,6 +158,10 @@
     <script>
       function scribeApp() {
         return {
+          urlOverride: {
+            'ws': null,
+            'keycloak': null
+          },
           envURL: localStorage.getItem("envURL") || "beta-eu",
           realm: localStorage.getItem("realm") || "copiloteu",
           username: localStorage.getItem("username") || "",
@@ -130,10 +172,12 @@
           transcriptions: [],
           streams: [],
           isRecording: false,
+          isStopped: false,
           isPaused: false,
+          allStreamData: null,
 
           authenticate() {
-            const url = `https://keycloak.${this.envURL}.corti.app/realms/${this.realm}/protocol/openid-connect/token`;
+            const url = this.urlOverride.keycloak || `https://keycloak.${this.envURL}.corti.app/realms/${this.realm}/protocol/openid-connect/token`;
             fetch(`http://localhost:8080/${url}`, {
               method: "POST",
               headers: {
@@ -159,86 +203,111 @@
           },
 
           startRecording() {
-    this.isRecording = true;
-    this.isPaused = false;
-    this.transcriptions = Array.from({ length: this.numberOfStreams }, () => []);
-    
-    // Initialize allStreamData object on start
-    window.allStreamData = {
-        envURL: this.envURL,
-        start_time: new Date().toISOString(),
-        number_of_streams: this.numberOfStreams,
-        selectedLanguage: this.selectedLanguage,
-        streams: []
-    };
+            this.isRecording = true;
+            this.isPaused = false;
+            this.transcriptions = Array.from(
+              { length: this.numberOfStreams },
+              () => []
+            );
 
-    navigator.mediaDevices
-        .getUserMedia({ audio: true })
-        .then((stream) => {
-            for (let i = 0; i < this.numberOfStreams; i++) {
-                const ws = new WebSocket(
-                    `wss://api.${this.envURL}.corti.app/audio-bridge/v1/transcribe?token=Bearer%20${this.token}`
-                );
+            // Initialize allStreamData object on start
+            this.allStreamData = {
+              envURL: this.envURL,
+              start_time: new Date().toISOString(),
+              number_of_streams: this.numberOfStreams,
+              selectedLanguage: this.selectedLanguage,
+              streams: [],
+            };
+            window.allStreamData = this.allStreamData;
 
-                ws.onopen = () => {
+            navigator.mediaDevices
+              .getUserMedia({ audio: true })
+              .then((stream) => {
+                for (let i = 0; i < this.numberOfStreams; i++) {
+                  const ws = new WebSocket(
+                    this.urlOverride.ws || `wss://api.${this.envURL}.corti.app/audio-bridge/v1/transcribe?token=Bearer%20${this.token}`
+                  );
+
+                  ws.onopen = () => {
                     const streamObject = {
-                        index: i,
-                        start_time: new Date().toISOString(),
-                        events: []
+                      index: i,
+                      start_time: new Date().toISOString(),
+                      audio_packets_sent: 0,
+                      mean_lag: 0,
+                      events: [],
                     };
                     // Push each new stream into the streams array in allStreamData
-                    window.allStreamData.streams.push(streamObject);
+                    this.allStreamData.streams.push(streamObject);
 
                     ws.send(
-                        JSON.stringify({
-                            event: "START",
-                            metadata: {
-                                language: this.selectedLanguage,
-                                previewResults: false,
-                            },
-                        })
+                      JSON.stringify({
+                        event: "START",
+                        metadata: {
+                          language: this.selectedLanguage,
+                          previewResults: false,
+                        },
+                      })
                     );
-                };
+                  };
 
-                ws.onmessage = (event) => {
+                  ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
                     const currentTime = new Date();
-                    const stream = window.allStreamData.streams[i];
+                    const stream = this.allStreamData.streams[i];
 
                     // Calculate time since start of stream
-                    const timeSinceStart = (currentTime - new Date(stream.start_time)) / 1000;
+                    const timeSinceStart =
+                      (currentTime - new Date(stream.start_time)) / 1000;
+
+                      const lag = parseFloat((timeSinceStart - data.data.end).toFixed(3));
 
                     // Push the event data into the events array of the relevant stream
                     stream.events.push({
-                        time: currentTime.toISOString(),
-                        time_since_start: parseFloat(timeSinceStart.toFixed(3)),
-                        lag: parseFloat(timeSinceStart.toFixed(3)) - data.data.end,
-                        data
+                      time: currentTime.toISOString(),
+                      time_since_start: parseFloat(timeSinceStart.toFixed(3)),
+                      lag,
+                      data,
                     });
 
+                    // Calculate the mean lag for the stream
+                    const lags = stream.events.map((event) => event.lag);
+                    stream.mean_lag =
+                      parseFloat((lags.reduce((a, b) => a + b, 0) / lags.length).toFixed(3));
+
                     if (data.type === "dictation" && data.data.final) {
-                        const record = {
-                            id: Math.random().toString(36).substr(2, 9),
-                            text: data.data.text,
-                        };
-                        this.transcriptions[i].push(record);
+                      const record = {
+                        id: Math.random().toString(36).substr(2, 9),
+                        text: data.data.text,
+                        lag
+                      };
+                      this.transcriptions[i].push(record);
                     }
-                };
+                  };
 
-                ws.onerror = (error) => console.error(`WebSocket error for stream ${i + 1}:`, error);
+                  ws.onerror = (error) =>
+                    console.error(
+                      `WebSocket error for stream ${i + 1}:`,
+                      error
+                    );
 
-                const recorder = new MediaRecorder(stream);
-                recorder.start(250);
-                recorder.addEventListener("dataavailable", (event) => {
-                    if (event.data.size > 0 && ws.readyState === 1 && !this.isPaused) {
-                        ws.send(event.data);
+                  const recorder = new MediaRecorder(stream);
+                  recorder.start(250);
+                  recorder.addEventListener("dataavailable", (event) => {
+                    if (
+                      event.data.size > 0 &&
+                      ws.readyState === 1 &&
+                      !this.isPaused
+                    ) {
+                      ws.send(event.data);
+                      // increment the allStreamData stream  audio_packets_sent
+                      this.allStreamData.streams[i].audio_packets_sent++;
                     }
-                });
+                  });
 
-                this.streams.push({ websocket: ws, recorder });
-            }
-        });
-},
+                  this.streams.push({ websocket: ws, recorder });
+                }
+              });
+          },
 
           pauseRecording() {
             this.isPaused = true;
@@ -247,10 +316,12 @@
           resumeRecording() {
             this.isPaused = false;
           },
+          refresh() {
+            location.reload();
+          },
 
           stopRecording() {
-            this.isRecording = false;
-            this.isPaused = false;
+            this.isStopped = true;
             this.streams.forEach(({ websocket, recorder }, index) => {
               if (websocket.readyState === 1) {
                 websocket.send(JSON.stringify({ event: "STOP" }));
