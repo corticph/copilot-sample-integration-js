@@ -57,6 +57,7 @@
         <select class="w-full p-2 border rounded" x-model="selectedLanguage">
           <option value="da">Danish</option>
           <option value="en">English</option>
+          <option value="de">German</option>
           <option value="es">Spanish</option>
           <option value="fr">French</option>
         </select>
@@ -75,8 +76,14 @@
           class="bg-green-500 text-white p-2 mt-4 rounded"
           @click="startRecording()"
         >
-          Start Dictation
+          Start Mic Dictation
         </button>
+        <button
+        class="border border-green-500 text-green-500 p-2 mt-4 rounded"
+        @click="startRecording(true)"
+      >
+        Start Display Dictation
+      </button>
       </div>
 
       <!-- Recording Controls -->
@@ -172,6 +179,8 @@
           username: localStorage.getItem("username") || "",
           password: localStorage.getItem("password") || "",
           token: "",
+          mediaStreamRef: null,
+          displayMediaStreamRef: null,
           selectedLanguage: "da",
           numberOfStreams: 1,
           transcriptions: [],
@@ -209,7 +218,7 @@
               .catch((error) => console.error("Error:", error));
           },
 
-          startRecording() {
+          async startRecording(display) {
             this.isRecording = true;
             this.isPaused = false;
             this.transcriptions = Array.from(
@@ -226,6 +235,24 @@
               streams: [],
             };
             window.allStreamData = this.allStreamData;
+
+            let stream;
+            if (display) {
+              this.displayMediaStreamRef =
+                await navigator.mediaDevices.getDisplayMedia({
+                  audio: true,
+                  video: true,
+                });
+              // get the audio track only
+              this.mediaStreamRef = new MediaStream();
+              this.displayMediaStreamRef.getAudioTracks().forEach((track) => {
+                this.mediaStreamRef?.addTrack(track);
+              });
+            } else {
+              this.mediaStreamRef = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+              });
+            }
 
             navigator.mediaDevices
               .getUserMedia({ audio: true })
@@ -303,7 +330,7 @@
 
                   // check if all n streams are open and ready to send audio
 
-                  const recorder = new MediaRecorder(stream);
+                  const recorder = new MediaRecorder(this.mediaStreamRef);
                   // wait for all streams to be open before sending audio checking every 100ms
                   const interval = setInterval(() => {
                     console.log("Checking if all streams are open");
@@ -344,10 +371,18 @@
 
           pauseRecording() {
             this.isPaused = true;
+            // Pause all recorders
+            this.streams.forEach(({ recorder }) => {
+              recorder.pause();
+            });
           },
 
           resumeRecording() {
             this.isPaused = false;
+            // Resume all recorders
+            this.streams.forEach(({ recorder }) => {
+              recorder.resume();
+            });
           },
           refresh() {
             location.reload();
