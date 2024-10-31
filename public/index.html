@@ -147,7 +147,7 @@
     authenticate() {
       const url = `https://keycloak.${this.baseURL}/realms/copiloteu/protocol/openid-connect/token`;
 
-      fetch(`http://localhost:8080/${url}`, {
+      fetch(`http://localhost:9090/${url}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",

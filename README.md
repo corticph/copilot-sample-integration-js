@@ -35,7 +35,7 @@ The app includes:
    ```
 
    This will start:
-   - A CORS proxy at `http://localhost:8080` for handling API requests.
+   - A CORS proxy at `http://localhost:9090` for handling API requests.
    - A static server on port `5173` serving the frontend.
 
 ## Usage

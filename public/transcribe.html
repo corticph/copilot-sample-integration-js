@@ -159,14 +159,14 @@
       function scribeApp() {
         return {
           urlOverride: {
-            'ws': null,
-            'keycloak': null
+            'ws': "ws://localhost:8000/v1/transcribe",
+            'keycloak': "http://localhost:8081"
           },
           envURL: localStorage.getItem("envURL") || "beta-eu",
           realm: localStorage.getItem("realm") || "copiloteu",
-          username: localStorage.getItem("username") || "",
-          password: localStorage.getItem("password") || "",
-          token: "",
+          username: localStorage.getItem("username") || "123",
+          password: localStorage.getItem("password") || "123",
+          token: "123",
           selectedLanguage: "da",
           numberOfStreams: 1,
           transcriptions: [],
@@ -178,7 +178,7 @@
 
           authenticate() {
             const url = this.urlOverride.keycloak || `https://keycloak.${this.envURL}.corti.app/realms/${this.realm}/protocol/openid-connect/token`;
-            fetch(`http://localhost:8080/${url}`, {
+            fetch(`http://localhost:9090/${url}`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
