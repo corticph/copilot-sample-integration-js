@@ -82,6 +82,18 @@
           min="1"
           x-model.number="numberOfStreams"
         />
+        <label class="block mt-4 mb-2 text-sm font-medium">Playback Rate</label>
+        <select
+          class="w-full p-2 border rounded"
+          x-model="playbackRate"
+          @change="checkPlaybackRate()"
+        >
+          <option value="1">Normal (1x)</option>
+          <option value="1.25">Fast (1.25x)</option>
+          <option value="1.5">Faster (1.5x)</option>
+          <option value="1.75">Extreme (1.75x)</option>
+          <option value="2">Madness (2x)</option>
+        </select>
 
         <button
           class="bg-green-500 text-white p-2 mt-4 rounded"
@@ -139,6 +151,7 @@
           isProcessing: false,
           transcriptions: [],
           streams: [],
+          playbackRate: "1", // Default playback rate
 
           authenticate() {
             const url =
@@ -166,6 +179,14 @@
                 localStorage.setItem("password", this.password);
               })
               .catch((error) => console.error("Error:", error));
+          },
+
+          checkPlaybackRate() {
+            if (this.playbackRate !== "1") {
+              alert(
+                "Warning: Using a playback rate other than normal may reduce transcript quality."
+              );
+            }
           },
 
           handleFileUpload(event) {
@@ -272,31 +293,27 @@
           sendAudioData(ws, file) {
             const audioContext = new AudioContext();
 
-            // Read the file as an ArrayBuffer
             const reader = new FileReader();
             reader.onload = async () => {
               const arrayBuffer = reader.result;
 
-              // Decode the audio data
               const audioBuffer = await audioContext.decodeAudioData(
                 arrayBuffer
               );
 
-              // Create an audio buffer source node
               const sourceNode = audioContext.createBufferSource();
               sourceNode.buffer = audioBuffer;
 
-              // Create a MediaStreamDestination
+              sourceNode.playbackRate.value = parseFloat(this.playbackRate); // Apply playback rate
+
               const destination = audioContext.createMediaStreamDestination();
               sourceNode.connect(destination);
               sourceNode.connect(audioContext.destination); // Optional: Play the audio locally
 
-              // Create a MediaRecorder
               const mediaRecorder = new MediaRecorder(destination.stream, {
                 mimeType: "audio/webm",
               });
 
-              // Handle data available from the MediaRecorder
               mediaRecorder.ondataavailable = (event) => {
                 if (event.data.size > 0) {
                   ws.send(event.data); // Send audio chunk to the WebSocket
@@ -304,23 +321,14 @@
               };
 
               mediaRecorder.onstop = () => {
-                // Send STOP event to signal the end of the stream
-                // but first, wait 10s to ensure all data is processed
-
                 setTimeout(() => {
                   ws.send(JSON.stringify({ event: "STOP" }));
                 }, 10000);
-
-                // ws.send(JSON.stringify({ event: "STOP" }));
               };
 
-              // Start recording in 250ms chunks
               sourceNode.start();
               mediaRecorder.start(250);
 
-              // Start playing the audio file
-
-              // Stop recording when the audio playback ends
               sourceNode.onended = () => {
                 mediaRecorder.stop();
               };
@@ -333,7 +341,6 @@
 
             reader.readAsArrayBuffer(file);
           },
-
           downloadResults() {
             const dataStr =
               "data:text/json;charset=utf-8," +
