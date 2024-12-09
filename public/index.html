@@ -20,6 +20,18 @@
         <input
           type="text"
           class="w-full p-2 border rounded"
+          placeholder="Environment ID"
+          x-model="envURL"
+        />
+        <input
+          type="text"
+          class="w-full p-2 border rounded mt-2"
+          placeholder="Realm"
+          x-model="realm"
+        />
+        <input
+          type="text"
+          class="w-full p-2 border rounded mt-2"
           placeholder="Username"
           x-model="username"
         />
@@ -46,7 +58,9 @@
             <option :value="template.id" x-text="template.name"></option>
           </template>
         </select>
-        <label class="block mt-4 mb-2 text-sm font-medium">Select Language</label>
+        <label class="block mt-4 mb-2 text-sm font-medium"
+          >Select Language</label
+        >
         <select class="w-full p-2 border rounded" x-model="selectedLanguage">
           <option value="en">English</option>
           <option value="es">Spanish</option>
@@ -54,6 +68,16 @@
           <option value="da">Danish</option>
           <option value="de">German</option>
         </select>
+        <label class="block mt-4 mb-2 text-sm font-medium"
+          >Upload Audio File</label
+        >
+        <input
+          type="file"
+          class="w-full p-2 border rounded"
+          accept="audio/*"
+          @change="uploadAudio($event)"
+        />
+
         <button
           class="bg-green-500 text-white p-2 mt-4 rounded"
           @click="startInteraction()"
@@ -96,227 +120,297 @@
           </button>
         </div>
       </div>
-      
 
       <!-- Transcription log -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4" x-show="sections.length > 0">
+      <div
+        class="grid grid-cols-1 md:grid-cols-2 gap-4"
+        x-show="sections.length > 0"
+      >
         <!-- Transcriptions Column -->
         <div class="mb-4">
-            <h2 class="text-xl font-bold">Transcriptions</h2>
-            <ul class="list-disc ml-6">
-                <template x-for="transcription in transcriptions" :key="transcription.id">
-                    <li x-text="transcription.text"></li>
-                </template>
-            </ul>
+          <h2 class="text-xl font-bold">Transcriptions</h2>
+          <ul class="list-disc ml-6">
+            <template
+              x-for="transcription in transcriptions"
+              :key="transcription.id"
+            >
+              <li x-text="transcription.text"></li>
+            </template>
+          </ul>
         </div>
 
         <!-- Documentation Sections Column -->
         <div class="mb-4">
-            <h2 class="text-xl font-bold">Documentation</h2>
-            <template x-for="section in sections" :key="section.sectionId">
-                <div>
-                    <h3 class="text-lg font-semibold" x-text="section.sectionTitle"></h3>
-                    <textarea
-                        class="w-full p-2 border rounded mt-2"
-                        x-model="section.text"
-                    ></textarea>
-                </div>
-            </template>
+          <h2 class="text-xl font-bold">Documentation</h2>
+          <template x-for="section in sections" :key="section.sectionId">
+            <div>
+              <h3
+                class="text-lg font-semibold"
+                x-text="section.sectionTitle"
+              ></h3>
+              <textarea
+                class="w-full p-2 border rounded mt-2"
+                x-model="section.text"
+              ></textarea>
+            </div>
+          </template>
         </div>
-    </div>
+      </div>
     </div>
 
     <script>
-    
-    function scribeApp() {
-  return {
-    baseURL: "beta-eu.corti.app",
-    username: localStorage.getItem("username") || "",
-    password: localStorage.getItem("password") || "",
-    token: localStorage.getItem("token") || "",
-    interactionId: null,
-    selectedTemplate: "",
-    selectedLanguage: "en",
-    templates: [],
-    transcriptions: [],
-    sections: [],
-    websocket: null,
-    isRecording: false,
-    isPaused: false,
+      function scribeApp() {
+        return {
+          baseURL: "beta-eu.corti.app",
+          envURL: localStorage.getItem("envURL") || "beta-eu",
+          realm: localStorage.getItem("realm") || "copiloteu",
+          username: localStorage.getItem("username") || "",
+          password: localStorage.getItem("password") || "",
+          token: localStorage.getItem("token") || "",
+          interactionId: null,
+          selectedTemplate: "",
+          selectedLanguage: "en",
+          templates: [],
+          transcriptions: [],
+          sections: [],
+          websocket: null,
+          isRecording: false,
+          isPaused: false,
+          file: null,
 
-    authenticate() {
-      const url = `https://keycloak.${this.baseURL}/realms/copiloteu/protocol/openid-connect/token`;
+          authenticate() {
+            const url = `https://keycloak.${this.envURL}.corti.app/realms/${this.realm}/protocol/openid-connect/token`;
 
-      fetch(`http://localhost:8080/${url}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          username: this.username,
-          password: this.password,
-          grant_type: "password",
-          client_id: "copilot-frontend",
-          scope: "openid",
-        }),
-      })
-        .then((response) => response.json())
-        .then((data) => {
-          this.token = data.access_token;
+            fetch(`http://localhost:8080/${url}`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: new URLSearchParams({
+                username: this.username,
+                password: this.password,
+                grant_type: "password",
+                client_id: "copilot-frontend",
+                scope: "openid",
+              }),
+            })
+              .then((response) => response.json())
+              .then((data) => {
+                this.token = data.access_token;
 
-          // Save credentials and token to localStorage
-          localStorage.setItem("username", this.username);
-          localStorage.setItem("password", this.password);
+                // Save credentials and token to localStorage
+                localStorage.setItem("username", this.username);
+                localStorage.setItem("password", this.password);
 
-          // Fetch templates after successful login
-          this.fetchTemplates();
-        })
-        .catch((error) => {
-          console.error("Error:", error);
-        });
-    },
-
-    fetchTemplates() {
-      fetch(
-        `https://api.${this.baseURL}/copilot/v1/templates?offset=0&limit=20`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${this.token}`,
-            "Content-Type": "application/json",
+                // Fetch templates after successful login
+                this.fetchTemplates();
+              })
+              .catch((error) => {
+                console.error("Error:", error);
+              });
           },
-        }
-      )
-        .then((response) => response.json())
-        .then((data) => {
-          this.templates = data.data.filter(
-            (template) => template.language.code.includes("en")
-          );
 
-          // Set the first template as the default selected template
-          if (this.templates.length > 0) {
-            this.selectedTemplate = this.templates[0].id;
-          }
-        })
-        .catch((error) => {
-          console.error("Error fetching templates:", error);
-        });
-    },
-
-    updateSections(selectedTemplateId) {
-      // Find the selected template and map its sections to the `sections` array
-      const selectedTemplate = this.templates.find(
-        (template) => template.id === selectedTemplateId
-      );
-
-      if (selectedTemplate) {
-        this.sections = selectedTemplate.sections.map((section) => ({
-          sectionId: section.id,
-          sectionTitle: section.title,
-          text: "",
-        }));
-      }
-    },
-
-    startInteraction() {
-      fetch(`https://api.${this.baseURL}/copilot/v1/interviews`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          language: this.selectedLanguage,
-          documentation: { template_id: this.selectedTemplate },
-          participants: [{ channel: 1, role: "multiple" }],
-        }),
-      })
-        .then((response) => response.json())
-        .then((data) => {
-          this.interactionId = data.id;
-
-          this.updateSections(this.selectedTemplate);
-          console.log(`Interaction started with ID: ${data.id}`);
-        });
-    },
-
-    startRecording() {
-      this.isRecording = true;
-      this.isPaused = false;
-
-      // Only create WebSocket if it doesn't already exist
-      if (!this.websocket || this.websocket.readyState !== 1) {
-        this.websocket = new WebSocket(
-          `wss://api.${this.baseURL}/audio-bridge/v1/interviews/${this.interactionId}/live?token=Bearer%20${this.token}`
-        );
-
-        this.websocket.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          if (data.type === "transcription") {
-            // Prepend new transcripts
-            data.records.map((record) => {
-              record.id = Math.random().toString(36).substr(2, 9);
-              this.transcriptions.push(record);
-            });
-          } else if (data.type === "documentation") {
-            data.sections.forEach((updatedSection) => {
-              const sectionIndex = this.sections.findIndex(
-                (section) => section.sectionId === updatedSection.sectionId
-              );
-              if (sectionIndex !== -1) {
-                this.sections[sectionIndex].text =
-                  updatedSection.records[0].text;
+          fetchTemplates() {
+            fetch(
+              `https://api.${this.envURL}.corti.app/copilot/v1/templates?offset=0&limit=20`,
+              {
+                method: "GET",
+                headers: {
+                  Authorization: `Bearer ${this.token}`,
+                  "Content-Type": "application/json",
+                },
               }
-            });
-          }
+            )
+              .then((response) => response.json())
+              .then((data) => {
+                this.templates = data.data.filter((template) =>
+                  template.language.code.includes("en")
+                );
+
+                // Set the first template as the default selected template
+                if (this.templates.length > 0) {
+                  this.selectedTemplate = this.templates[0].id;
+                }
+              })
+              .catch((error) => {
+                console.error("Error fetching templates:", error);
+              });
+          },
+          uploadAudio(event) {
+            this.file = event.target.files[0];
+          },
+
+          updateSections(selectedTemplateId) {
+            // Find the selected template and map its sections to the `sections` array
+            const selectedTemplate = this.templates.find(
+              (template) => template.id === selectedTemplateId
+            );
+
+            if (selectedTemplate) {
+              this.sections = selectedTemplate.sections.map((section) => ({
+                sectionId: section.id,
+                sectionTitle: section.title,
+                text: "",
+              }));
+            }
+          },
+
+          startInteraction() {
+            fetch(`https://api.${this.baseURL}/copilot/v1/interviews`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${this.token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                language: this.selectedLanguage,
+                documentation: { template_id: this.selectedTemplate },
+                participants: [{ channel: 1, role: "multiple" }],
+              }),
+            })
+              .then((response) => response.json())
+              .then((data) => {
+                this.interactionId = data.id;
+
+                this.updateSections(this.selectedTemplate);
+                console.log(`Interaction started with ID: ${data.id}`);
+              });
+          },
+
+          startRecording() {
+            this.isRecording = true;
+            this.isPaused = false;
+
+            // Only create WebSocket if it doesn't already exist
+            if (!this.websocket || this.websocket.readyState !== 1) {
+              this.websocket = new WebSocket(
+                `wss://api.${this.baseURL}/audio-bridge/v1/interviews/${this.interactionId}/live?token=Bearer%20${this.token}`
+              );
+
+              this.websocket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === "transcription") {
+                  // Prepend new transcripts
+                  data.records.map((record) => {
+                    record.id = Math.random().toString(36).substr(2, 9);
+                    this.transcriptions.push(record);
+                  });
+                } else if (data.type === "documentation") {
+                  data.sections.forEach((updatedSection) => {
+                    const sectionIndex = this.sections.findIndex(
+                      (section) =>
+                        section.sectionId === updatedSection.sectionId
+                    );
+                    if (sectionIndex !== -1) {
+                      this.sections[sectionIndex].text =
+                        updatedSection.records[0].text;
+                    }
+                  });
+                }
+              };
+            }
+
+            if (this.file) {
+              const audioContext = new AudioContext();
+              const reader = new FileReader();
+
+              reader.onload = async () => {
+                try {
+                  const arrayBuffer = reader.result;
+                  const audioBuffer = await audioContext.decodeAudioData(
+                    arrayBuffer
+                  );
+                  const sourceNode = audioContext.createBufferSource();
+                  sourceNode.buffer = audioBuffer;
+
+                  const destination =
+                    audioContext.createMediaStreamDestination();
+                  sourceNode.connect(destination);
+
+                  const mediaRecorder = new MediaRecorder(destination.stream, {
+                    mimeType: "audio/webm",
+                  });
+
+                  mediaRecorder.ondataavailable = (event) => {
+                    if (
+                      event.data.size > 0 &&
+                      this.websocket.readyState === WebSocket.OPEN
+                    ) {
+                      this.websocket.send(event.data);
+                    }
+                  };
+
+                  mediaRecorder.onstop = () => {
+                    this.websocket.send(JSON.stringify({ event: "STOP" }));
+                    this.websocket.close();
+                  };
+
+                  sourceNode.start();
+                  mediaRecorder.start(250);
+
+                  sourceNode.onended = () => {
+                    mediaRecorder.stop();
+                  };
+                } catch (error) {
+                  console.error("Error processing audio file:", error);
+                }
+              };
+
+              reader.onerror = (error) => {
+                console.error("File reading error:", error);
+              };
+
+              reader.readAsArrayBuffer(this.file);
+            } else {
+              // Start recording and send audio data
+              navigator.mediaDevices
+                .getUserMedia({ audio: true })
+                .then((stream) => {
+                  const recorder = new MediaRecorder(stream);
+                  recorder.start(250);
+
+                  recorder.addEventListener("dataavailable", (event) => {
+                    if (
+                      event.data.size > 0 &&
+                      this.websocket.readyState === 1
+                    ) {
+                      this.websocket.send(event.data);
+                    }
+                  });
+                });
+            }
+          },
+
+          pauseRecording() {
+            this.isPaused = true;
+            if (this.websocket) {
+              this.websocket.send(JSON.stringify({ type: "pause" }));
+            }
+          },
+
+          resumeRecording() {
+            this.isPaused = false;
+            if (this.websocket) {
+              this.websocket.send(JSON.stringify({ type: "resume" }));
+            }
+          },
+
+          stopRecording() {
+            this.isRecording = false;
+            this.isPaused = false;
+            if (this.websocket) {
+              this.websocket.send(JSON.stringify({ type: "end" }));
+            }
+          },
+
+          // Automatically fetch templates if the user is already logged in
+          init() {
+            if (this.username && this.password) {
+              this.authenticate();
+            }
+          },
         };
       }
-
-      // Start recording and send audio data
-      navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-        const recorder = new MediaRecorder(stream);
-        recorder.start(250);
-
-        recorder.addEventListener("dataavailable", (event) => {
-          if (event.data.size > 0 && this.websocket.readyState === 1) {
-            this.websocket.send(event.data);
-          }
-        });
-      });
-    },
-
-    pauseRecording() {
-      this.isPaused = true;
-      if (this.websocket) {
-        this.websocket.send(JSON.stringify({ type: "pause" }));
-      }
-    },
-
-    resumeRecording() {
-      this.isPaused = false;
-      if (this.websocket) {
-        this.websocket.send(JSON.stringify({ type: "resume" }));
-      }
-    },
-
-    stopRecording() {
-      this.isRecording = false;
-      this.isPaused = false;
-      if (this.websocket) {
-        this.websocket.send(JSON.stringify({ type: "end" }));
-      }
-    },
-
-    // Automatically fetch templates if the user is already logged in
-    init() {
-      if (this.username && this.password) {
-        this.authenticate();
-      }
-    },
-  };
-}
-
-    
     </script>
   </body>
 </html>
