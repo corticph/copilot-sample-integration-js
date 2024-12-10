@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Transcribe Files Concurrently - AI Scribe App</title>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
+    ></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-100 p-6" x-data="scribeApp()">
+    <div class="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-lg">
+      <h1 class="text-2xl font-bold mb-6">AI Scribe</h1>
+
+      <!-- Authentication -->
+      <div class="mb-4" x-show="!token">
+        <label class="block mb-2 text-sm font-medium">Login</label>
+        <input
+          type="text"
+          class="w-full p-2 border rounded"
+          placeholder="Environment ID"
+          x-model="envURL"
+        />
+        <input
+          type="text"
+          class="w-full p-2 border rounded mt-2"
+          placeholder="Realm"
+          x-model="realm"
+        />
+        <input
+          type="text"
+          class="w-full p-2 border rounded mt-2"
+          placeholder="Username"
+          x-model="username"
+        />
+        <input
+          type="password"
+          class="w-full p-2 border rounded mt-2"
+          placeholder="Password"
+          x-model="password"
+        />
+        <button
+          class="bg-blue-500 text-white p-2 mt-4 rounded"
+          @click="authenticate()"
+        >
+          Login
+        </button>
+      </div>
+
+      <!-- File Upload -->
+      <div class="mb-4" x-show="token && !isProcessing">
+        <label class="block mt-4 mb-2 text-sm font-medium"
+          >Upload Audio Files</label
+        >
+        <input
+          type="file"
+          class="w-full p-2 border rounded"
+          multiple
+          accept="audio/*"
+          @change="handleFileUpload($event)"
+        />
+
+        <label class="block mt-4 mb-2 text-sm font-medium"
+          >Select Language</label
+        >
+        <select class="w-full p-2 border rounded" x-model="selectedLanguage">
+          <option value="da">Danish</option>
+          <option value="en">English</option>
+          <option value="de">German</option>
+          <option value="es">Spanish</option>
+          <option value="fr">French</option>
+        </select>
+
+        <label class="block mt-4 mb-2 text-sm font-medium"
+          >Number of Streams</label
+        >
+        <input
+          type="number"
+          class="w-full p-2 border rounded"
+          min="1"
+          x-model.number="numberOfStreams"
+        />
+        <label class="block mt-4 mb-2 text-sm font-medium">Playback Rate</label>
+        <select
+          class="w-full p-2 border rounded"
+          x-model="playbackRate"
+          @change="checkPlaybackRate()"
+        >
+          <option value="1">Normal (1x)</option>
+          <option value="1.25">Fast (1.25x)</option>
+          <option value="1.5">Faster (1.5x)</option>
+          <option value="1.75">Extreme (1.75x)</option>
+          <option value="2">Madness (2x)</option>
+        </select>
+
+        <button
+          class="bg-green-500 text-white p-2 mt-4 rounded"
+          @click="startProcessing()"
+          x-show="uploadedFiles.length > 0"
+        >
+          Start Processing
+        </button>
+      </div>
+
+      <!-- Processing Progress -->
+      <div class="mb-4" x-show="isProcessing">
+        <h2 class="text-xl font-bold">Processing Files</h2>
+        <p
+          x-text="`Processed ${filesProcessed} of ${uploadedFiles.length} files`"
+        ></p>
+      </div>
+
+      <!-- Processing Results -->
+      <div class="mb-4" x-show="!isProcessing && processingResults.length > 0">
+        <h2 class="text-xl font-bold">Transcriptions</h2>
+        <template x-for="result in processingResults" :key="result.filename">
+          <div class="mb-2">
+            <h3 class="text-lg font-semibold" x-text="result.filename"></h3>
+            <p x-text="result.transcript"></p>
+          </div>
+        </template>
+        <button
+          class="bg-blue-500 text-white p-2 mt-4 rounded"
+          @click="downloadResults()"
+        >
+          Download Results
+        </button>
+      </div>
+    </div>
+
+    <script>
+      function scribeApp() {
+        return {
+          urlOverride: {
+            ws: null,
+            keycloak: null,
+          },
+          envURL: localStorage.getItem("envURL") || "beta-eu",
+          realm: localStorage.getItem("realm") || "copiloteu",
+          username: localStorage.getItem("username") || "",
+          password: localStorage.getItem("password") || "",
+          token: "",
+          selectedLanguage: "da",
+          numberOfStreams: 1,
+          uploadedFiles: [],
+          fileQueue: [],
+          processingResults: [],
+          filesProcessed: 0,
+          isProcessing: false,
+          transcriptions: [],
+          streams: [],
+          playbackRate: "1", // Default playback rate
+
+          authenticate() {
+            const url =
+              this.urlOverride.keycloak ||
+              `https://keycloak.${this.envURL}.corti.app/realms/${this.realm}/protocol/openid-connect/token`;
+            fetch(`http://localhost:8080/${url}`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: new URLSearchParams({
+                username: this.username,
+                password: this.password,
+                grant_type: "password",
+                client_id: "copilot-frontend",
+                scope: "openid",
+              }),
+            })
+              .then((response) => response.json())
+              .then((data) => {
+                this.token = data.access_token;
+                localStorage.setItem("envURL", this.envURL);
+                localStorage.setItem("realm", this.realm);
+                localStorage.setItem("username", this.username);
+                localStorage.setItem("password", this.password);
+              })
+              .catch((error) => console.error("Error:", error));
+          },
+
+          checkPlaybackRate() {
+            if (this.playbackRate !== "1") {
+              alert(
+                "Warning: Using a playback rate other than normal may reduce transcript quality."
+              );
+            }
+          },
+
+          handleFileUpload(event) {
+            this.uploadedFiles = Array.from(event.target.files);
+          },
+
+          async startProcessing() {
+            if (this.uploadedFiles.length === 0) {
+              alert("Please upload at least one audio file.");
+              return;
+            }
+
+            this.isProcessing = true;
+            this.filesProcessed = 0;
+            this.processingResults = [];
+            this.fileQueue = [...this.uploadedFiles];
+
+            this.transcriptions = [];
+
+            const streamsToStart = Math.min(
+              this.numberOfStreams,
+              this.fileQueue.length
+            );
+            for (let i = 0; i < streamsToStart; i++) {
+              this.startStream();
+            }
+          },
+
+          async startStream() {
+            if (this.fileQueue.length === 0) {
+              return;
+            }
+
+            const file = this.fileQueue.shift();
+            const fileName = file.name;
+
+            const ws = new WebSocket(
+              this.urlOverride.ws ||
+                `wss://api.${this.envURL}.corti.app/audio-bridge/v1/transcribe?token=Bearer%20${this.token}`
+            );
+
+            const transcriptions = [];
+            const streamIndex = this.streams.length;
+            this.streams.push({ websocket: ws, fileName, transcriptions });
+
+            ws.onopen = () => {
+              ws.send(
+                JSON.stringify({
+                  event: "START",
+                  metadata: {
+                    language: this.selectedLanguage,
+                    previewResults: false,
+                  },
+                })
+              );
+
+              // Start sending audio data
+              this.sendAudioData(ws, file);
+            };
+
+            ws.onmessage = (event) => {
+              const data = JSON.parse(event.data);
+
+              if (data.type === "dictation" && data.data.final) {
+                const text = data.data.text;
+                transcriptions.push(text);
+              }
+            };
+
+            ws.onclose = () => {
+              // Collect the transcript
+              const transcriptText = transcriptions.join(" ");
+              this.processingResults.push({
+                filename: fileName,
+                transcript: transcriptText,
+              });
+
+              this.filesProcessed++;
+
+              // Start processing the next file in the queue
+              if (this.fileQueue.length > 0) {
+                this.startStream();
+              } else if (this.filesProcessed === this.uploadedFiles.length) {
+                // All files processed
+                this.isProcessing = false;
+              }
+            };
+
+            ws.onerror = (error) => {
+              console.error(`WebSocket error for file ${fileName}:`, error);
+              ws.close();
+
+              // Proceed to next file in case of error
+              this.filesProcessed++;
+              if (this.fileQueue.length > 0) {
+                this.startStream();
+              } else if (this.filesProcessed === this.uploadedFiles.length) {
+                // All files processed
+                this.isProcessing = false;
+              }
+            };
+          },
+
+          sendAudioData(ws, file) {
+            const audioContext = new AudioContext();
+
+            const reader = new FileReader();
+            reader.onload = async () => {
+              const arrayBuffer = reader.result;
+
+              const audioBuffer = await audioContext.decodeAudioData(
+                arrayBuffer
+              );
+
+              const sourceNode = audioContext.createBufferSource();
+              sourceNode.buffer = audioBuffer;
+
+              sourceNode.playbackRate.value = parseFloat(this.playbackRate); // Apply playback rate
+
+              const destination = audioContext.createMediaStreamDestination();
+              sourceNode.connect(destination);
+              sourceNode.connect(audioContext.destination); // Optional: Play the audio locally
+
+              const mediaRecorder = new MediaRecorder(destination.stream, {
+                mimeType: "audio/webm",
+              });
+
+              mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                  ws.send(event.data); // Send audio chunk to the WebSocket
+                }
+              };
+
+              mediaRecorder.onstop = () => {
+                setTimeout(() => {
+                  ws.send(JSON.stringify({ event: "STOP" }));
+                }, 10000);
+              };
+
+              sourceNode.start();
+              mediaRecorder.start(250);
+
+              sourceNode.onended = () => {
+                mediaRecorder.stop();
+              };
+            };
+
+            reader.onerror = (error) => {
+              console.error("Error reading file:", error);
+              ws.close();
+            };
+
+            reader.readAsArrayBuffer(file);
+          },
+          downloadResults() {
+            const dataStr =
+              "data:text/json;charset=utf-8," +
+              encodeURIComponent(
+                JSON.stringify(this.processingResults, null, 2)
+              );
+            const downloadAnchorNode = document.createElement("a");
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "transcriptions.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+          },
+
+          init() {
+            if (this.username && this.password) {
+              this.authenticate();
+            }
+            window.transcriptions = this.transcriptions;
+          },
+        };
+      }
+    </script>
+  </body>
+</html>
